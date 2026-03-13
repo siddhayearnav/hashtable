@@ -1,57 +1,149 @@
 import java.util.*;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.PriorityQueue;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Random;
 
 public class HashTableSystemDesignProblems {
 
-    /*
-    =========================
-    PROBLEM 1
-    Username Availability
-    =========================
-    */
 
-    static class UsernameChecker {
 
-        HashMap<String, Integer> users = new HashMap<>();
-        HashMap<String, Integer> attempts = new HashMap<>();
+    static class TokenBucket {
 
-        boolean checkAvailability(String username) {
-            attempts.put(username, attempts.getOrDefault(username, 0) + 1);
-            return !users.containsKey(username);
+        int tokens;
+        int maxTokens;
+        long lastRefill;
+
+        TokenBucket(int maxTokens) {
+            this.tokens = maxTokens;
+            this.maxTokens = maxTokens;
+            this.lastRefill = System.currentTimeMillis();
         }
 
-        List<String> suggestAlternatives(String username) {
+        synchronized boolean allowRequest() {
 
-            List<String> suggestions = new ArrayList<>();
+            long now = System.currentTimeMillis();
 
-            for (int i = 1; i <= 3; i++) {
-                suggestions.add(username + i);
+            if (now - lastRefill > 3600000) {
+                tokens = maxTokens;
+                lastRefill = now;
             }
 
-            suggestions.add(username.replace("_", "."));
+            if (tokens > 0) {
+                tokens--;
+                return true;
+            }
 
-            return suggestions;
+            return false;
+        }
+    }
+
+    static class RateLimiter {
+
+        HashMap<String, TokenBucket> clients = new HashMap<>();
+
+        boolean check(String clientId) {
+
+            clients.putIfAbsent(clientId,
+                    new TokenBucket(1000));
+
+            return clients.get(clientId)
+                    .allowRequest();
+        }
+    }
+
+
+
+    static class Autocomplete {
+
+        HashMap<String, Integer> frequency = new HashMap<>();
+
+        void addQuery(String query) {
+            frequency.put(query,
+                    frequency.getOrDefault(query,0)+1);
         }
 
-        String getMostAttempted() {
+        List<String> search(String prefix) {
 
-            String result = "";
-            int max = 0;
+            PriorityQueue<String> pq =
+                    new PriorityQueue<>(
+                            (a,b)->frequency.get(b)-frequency.get(a)
+                    );
 
-            for (String user : attempts.keySet()) {
-                if (attempts.get(user) > max) {
-                    max = attempts.get(user);
-                    result = user;
+            for(String q:frequency.keySet()){
+
+                if(q.startsWith(prefix)){
+                    pq.add(q);
                 }
+            }
+
+            List<String> res=new ArrayList<>();
+
+            for(int i=0;i<10 && !pq.isEmpty();i++){
+                res.add(pq.poll());
+            }
+
+            return res;
+        }
+    }
+
+
+    static class ParkingLot {
+
+        String[] table;
+        int size;
+
+        ParkingLot(int size){
+            this.size=size;
+            table=new String[size];
+        }
+
+        int hash(String plate){
+            return Math.abs(plate.hashCode())%size;
+        }
+
+        int parkVehicle(String plate){
+
+            int index=hash(plate);
+
+            while(table[index]!=null){
+                index=(index+1)%size;
+            }
+
+            table[index]=plate;
+
+            return index;
+        }
+    }
+
+
+
+    static class Transaction{
+
+        int id;
+        int amount;
+
+        Transaction(int id,int amount){
+            this.id=id;
+            this.amount=amount;
+        }
+    }
+
+    static class FraudDetector{
+
+        List<int[]> twoSum(List<Transaction> txns,int target){
+
+            HashMap<Integer,Transaction> map=new HashMap<>();
+
+            List<int[]> result=new ArrayList<>();
+
+            for(Transaction t:txns){
+
+                int comp=target-t.amount;
+
+                if(map.containsKey(comp)){
+                    result.add(new int[]{
+                            map.get(comp).id,t.id
+                    });
+                }
+
+                map.put(t.amount,t);
             }
 
             return result;
@@ -59,203 +151,49 @@ public class HashTableSystemDesignProblems {
     }
 
 
-    /*
-    =========================
-    PROBLEM 2
-    Flash Sale Inventory
-    =========================
-    */
 
-    static class InventoryManager {
+    static class MultiLevelCache{
 
-        HashMap<String, Integer> stock = new HashMap<>();
-        HashMap<String, Queue<Integer>> waiting = new HashMap<>();
+        LinkedHashMap<String,String> L1=
+                new LinkedHashMap<>(10000,0.75f,true);
 
-        void addProduct(String productId, int count) {
-            stock.put(productId, count);
-            waiting.put(productId, new LinkedList<>());
-        }
+        HashMap<String,String> L2=new HashMap<>();
 
-        synchronized String purchaseItem(String productId, int userId) {
+        String getVideo(String id){
 
-            int current = stock.getOrDefault(productId, 0);
-
-            if (current > 0) {
-
-                stock.put(productId, current - 1);
-
-                return "Success, remaining: " + (current - 1);
-
-            } else {
-
-                waiting.get(productId).add(userId);
-
-                return "Added to waiting list position "
-                        + waiting.get(productId).size();
-            }
-        }
-
-        int checkStock(String productId) {
-            return stock.getOrDefault(productId, 0);
-        }
-    }
-
-
-    /*
-    =========================
-    PROBLEM 3
-    DNS Cache with TTL
-    =========================
-    */
-
-    static class DNSCache {
-
-        static class Entry {
-            String ip;
-            long expiry;
-
-            Entry(String ip, long ttl) {
-                this.ip = ip;
-                this.expiry = System.currentTimeMillis() + ttl;
-            }
-        }
-
-        HashMap<String, Entry> cache = new HashMap<>();
-
-        String resolve(String domain) {
-
-            if (cache.containsKey(domain)) {
-
-                Entry entry = cache.get(domain);
-
-                if (System.currentTimeMillis() < entry.expiry) {
-                    return "Cache HIT -> " + entry.ip;
-                }
-
-                cache.remove(domain);
+            if(L1.containsKey(id)){
+                return "L1 HIT";
             }
 
-            String ip = queryUpstream(domain);
+            if(L2.containsKey(id)){
 
-            cache.put(domain, new Entry(ip, 5000));
+                L1.put(id,L2.get(id));
 
-            return "Cache MISS -> " + ip;
-        }
-
-        String queryUpstream(String domain) {
-            return "172.217.14." + new Random().nextInt(200);
-        }
-    }
-
-
-    /*
-    =========================
-    PROBLEM 4
-    Plagiarism Detector
-    =========================
-    */
-
-    static class PlagiarismDetector {
-
-        HashMap<String, Set<String>> index = new HashMap<>();
-
-        void addDocument(String docId, String text) {
-
-            String[] words = text.split(" ");
-
-            for (int i = 0; i < words.length - 4; i++) {
-
-                String gram = words[i] + " " +
-                        words[i+1] + " " +
-                        words[i+2] + " " +
-                        words[i+3] + " " +
-                        words[i+4];
-
-                index.putIfAbsent(gram, new HashSet<>());
-
-                index.get(gram).add(docId);
-            }
-        }
-
-        Map<String, Integer> analyze(String text) {
-
-            Map<String, Integer> result = new HashMap<>();
-
-            String[] words = text.split(" ");
-
-            for (int i = 0; i < words.length - 4; i++) {
-
-                String gram = words[i] + " " +
-                        words[i+1] + " " +
-                        words[i+2] + " " +
-                        words[i+3] + " " +
-                        words[i+4];
-
-                if (index.containsKey(gram)) {
-
-                    for (String doc : index.get(gram)) {
-
-                        result.put(doc,
-                                result.getOrDefault(doc, 0) + 1);
-                    }
-                }
+                return "L2 HIT";
             }
 
-            return result;
-        }
-    }
+            String data="VideoData";
 
+            L2.put(id,data);
 
-    /*
-    =========================
-    PROBLEM 5
-    Real Time Analytics
-    =========================
-    */
-
-    static class Analytics {
-
-        HashMap<String, Integer> pageViews = new HashMap<>();
-        HashMap<String, Set<String>> uniqueVisitors = new HashMap<>();
-        HashMap<String, Integer> sources = new HashMap<>();
-
-        void processEvent(String url, String userId, String source) {
-
-            pageViews.put(url,
-                    pageViews.getOrDefault(url, 0) + 1);
-
-            uniqueVisitors.putIfAbsent(url, new HashSet<>());
-            uniqueVisitors.get(url).add(userId);
-
-            sources.put(source,
-                    sources.getOrDefault(source, 0) + 1);
-        }
-
-        void getTopPages() {
-
-            pageViews.entrySet()
-                    .stream()
-                    .sorted((a,b)->b.getValue()-a.getValue())
-                    .limit(10)
-                    .forEach(System.out::println);
+            return "DB HIT";
         }
     }
 
 
     public static void main(String[] args) {
 
-        UsernameChecker checker = new UsernameChecker();
+        RateLimiter limiter=new RateLimiter();
 
         System.out.println(
-                checker.checkAvailability("john_doe")
+                limiter.check("client1")
         );
 
-        InventoryManager manager = new InventoryManager();
+        Autocomplete ac=new Autocomplete();
 
-        manager.addProduct("IPHONE15", 2);
+        ac.addQuery("java tutorial");
+        ac.addQuery("javascript");
 
-        System.out.println(
-                manager.purchaseItem("IPHONE15", 101)
-        );
+        System.out.println(ac.search("jav"));
     }
 }
